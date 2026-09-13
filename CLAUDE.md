@@ -74,3 +74,16 @@ Example format:
   ```js
   ...
   ```
+
+---
+
+## Active refactor
+The source of truth for current work is `docs/REFACTOR_PLAN.md`.
+Read it before starting any task. Work phases in order.
+Do not advance a phase until its acceptance criteria pass.
+
+Standing constraints:
+- Discord is bugfix-only. Do not add Discord features. Do not chase parity.
+- No `import discord` anywhere under `core/`.
+- Every resolver change needs a seeded test before merge.
+- `cogs/vip_commands.py` is intentionally NOT loaded in `main.py`. Leave it.
