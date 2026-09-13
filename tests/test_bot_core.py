@@ -170,96 +170,59 @@ class TestComputeCardPower:
 # ─────────────────────────────────────────────
 
 class TestBattleEngine:
-    """BattleEngine.execute_battle() with p1_override/p2_override."""
+    """resolve_match() with p1_override/p2_override (legacy BattleEngine surface).
+    Full seeded coverage lives in tests/test_resolver.py."""
+
+    class _Rng:
+        def __init__(self, v): self.v = v
+        def random(self): return self.v
+
+    NO_CRIT = 0.99
+    ALWAYS_CRIT = 0.0
 
     def _make_card(self, card_id="c1", rarity="common"):
-        from discord_cards import ArtistCard
-        return ArtistCard(
-            card_id=card_id, artist="Artist", song="Song",
-            youtube_url="", youtube_id="", view_count=10_000_000,
-            thumbnail="", rarity=rarity,
-        )
+        from core.battle import CardRef
+        return CardRef(card_id=card_id, name="Artist", title="Song", rarity=rarity, power=30)
 
     def test_higher_power_wins(self):
-        from battle_engine import BattleEngine
-        card1 = self._make_card("c1")
-        card2 = self._make_card("c2")
-        # Force deterministic outcome with no crits (mock random)
-        import random
-        random.seed(0)  # seed gives known crit results
-        result = BattleEngine.execute_battle(card1, card2, "casual",
-                                             p1_override=100, p2_override=50)
-        # power diff = 50, well above MIN_POWER_ADVANTAGE=5
+        from battle_engine import execute_battle
+        result = execute_battle(self._make_card("c1"), self._make_card("c2"), "casual",
+                                p1_override=100, p2_override=50, rng=self._Rng(self.NO_CRIT))
         assert result["player1"]["base_power"] == 100
         assert result["player2"]["base_power"] == 50
-        # Winner should be 1 unless crit reversed it
-        p1_final = result["player1"]["final_power"]
-        p2_final = result["player2"]["final_power"]
-        if result["winner"] != 0:
-            assert result["winner"] == (1 if p1_final > p2_final else 2)
+        assert result["winner"] == 1
 
     def test_tie_when_powers_close(self):
-        from battle_engine import BattleEngine
-        import random
-        # Patch random to return 0 (no crits)
-        original = random.random
-        random.random = lambda: 0.99  # never crits
-        try:
-            card1 = self._make_card("c1")
-            card2 = self._make_card("c2")
-            result = BattleEngine.execute_battle(card1, card2, "casual",
-                                                 p1_override=50, p2_override=52)
-            # diff = 2 < MIN_POWER_ADVANTAGE(5) → tie
-            assert result["winner"] == 0
-        finally:
-            random.random = original
+        from battle_engine import execute_battle
+        result = execute_battle(self._make_card("c1"), self._make_card("c2"), "casual",
+                                p1_override=50, p2_override=52, rng=self._Rng(self.NO_CRIT))
+        assert result["winner"] == 0  # diff 2 < MIN_POWER_ADVANTAGE 5
 
     def test_override_ignores_artiscard_power(self):
-        from battle_engine import BattleEngine
-        import random
-        random.random = lambda: 0.99
-        try:
-            card1 = self._make_card("c1", rarity="common")   # low natural power
-            card2 = self._make_card("c2", rarity="mythic")   # high natural power
-            # Override gives c1 much more power
-            result = BattleEngine.execute_battle(card1, card2, "casual",
-                                                 p1_override=130, p2_override=10)
-            assert result["player1"]["base_power"] == 130
-            assert result["player2"]["base_power"] == 10
-            assert result["winner"] == 1
-        finally:
-            import random as r; r.random = lambda: r.random.__module__  # restore properly
+        from battle_engine import execute_battle
+        result = execute_battle(self._make_card("c1", "common"), self._make_card("c2", "mythic"),
+                                "casual", p1_override=130, p2_override=10,
+                                rng=self._Rng(self.NO_CRIT))
+        assert result["player1"]["base_power"] == 130
+        assert result["player2"]["base_power"] == 10
+        assert result["winner"] == 1
 
     def test_crit_multiplies_power(self):
-        from battle_engine import BattleEngine
-        import random
-        random.random = lambda: 0.0  # always crits
-        try:
-            card1 = self._make_card("c1")
-            card2 = self._make_card("c2")
-            result = BattleEngine.execute_battle(card1, card2, "casual",
-                                                 p1_override=60, p2_override=60)
-            # Both crit → both get 1.5x → still equal → tie
-            assert result["player1"]["critical_hit"] is True
-            assert result["player2"]["critical_hit"] is True
-            assert result["player1"]["final_power"] == int(60 * 1.5)
-        finally:
-            pass
+        from battle_engine import execute_battle
+        result = execute_battle(self._make_card("c1"), self._make_card("c2"), "casual",
+                                p1_override=60, p2_override=60, rng=self._Rng(self.ALWAYS_CRIT))
+        assert result["player1"]["critical_hit"] is True
+        assert result["player2"]["critical_hit"] is True
+        assert result["player1"]["final_power"] == int(60 * 1.5)
+        assert result["winner"] == 0
 
     def test_rewards_assigned_to_winner(self):
-        from battle_engine import BattleEngine, BattleWagerConfig
-        import random
-        random.random = lambda: 0.99
-        try:
-            card1 = self._make_card("c1")
-            card2 = self._make_card("c2")
-            result = BattleEngine.execute_battle(card1, card2, "standard",
-                                                 p1_override=90, p2_override=30)
-            tier = BattleWagerConfig.get_tier("standard")
-            assert result["player1"]["gold_reward"] == tier["winner_gold"]
-            assert result["player2"]["gold_reward"] == tier["loser_gold"]
-        finally:
-            pass
+        from battle_engine import execute_battle, BattleWagerConfig
+        result = execute_battle(self._make_card("c1"), self._make_card("c2"), "standard",
+                                p1_override=90, p2_override=30, rng=self._Rng(self.NO_CRIT))
+        tier = BattleWagerConfig.get_tier("standard")
+        assert result["player1"]["gold_reward"] == tier["winner_gold"]
+        assert result["player2"]["gold_reward"] == tier["loser_gold"]
 
 
 # ─────────────────────────────────────────────

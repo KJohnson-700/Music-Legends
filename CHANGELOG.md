@@ -1,5 +1,17 @@
 # 📋 CHANGELOG
 
+## 🧱 **Refactor Phase 1 — 2026-09-13** (Telegram-primary track)
+
+### ✅ **Battle engine decoupled from discord.py**
+- **NEW**: `core/battle/` — pure logic package (`config.py`, `types.py`, `resolver.py`, `manager.py`). No discord/fastapi imports allowed under `core/`.
+- **NEW**: `resolve_match()` / `resolve_round()` take an explicit `random.Random` so matches are deterministic and replayable; `resolve_round` is the seam Phase 4 will call once per lineup slot.
+- **NEW**: `CardRef` — platform-neutral card used by the Telegram router instead of `discord_cards.ArtistCard`.
+- **NEW**: `adapters/discord_battle.py` (embeds, `BattleHistory`) and `adapters/tma_battle.py` (JSON serializer). Only `adapters/discord_battle.py` imports discord in the battle path.
+- **NEW**: `tests/test_resolver.py` — 17 seeded tests (determinism, crit math, tie threshold, per-tier rewards, no-discord guard).
+- **REMOVED**: legacy `BattleEngine` class. `battle_engine.py` is now a shim re-exporting from `core.battle`; Discord-only helpers resolve lazily.
+- **CHANGED**: `cogs/battle_commands.py`, `cogs/dev_supply_commands.py`, `tma/api/routers/battle.py` call `resolve_match()`.
+- **VERIFIED**: `core.battle.resolver` and `tma.api.routers.battle` import with discord.py blocked. 57/58 in `tests/test_bot_core.py` + `tests/test_resolver.py` pass; the 1 failure (`TestDeckSize`) and `test_get_me_skip_hmac` fail identically on the previous commit (pre-existing).
+
 ## 🚀 **Version 2.0 - January 2026** (MAJOR UPDATE)
 
 ### ✅ **Battle System Complete Overhaul**

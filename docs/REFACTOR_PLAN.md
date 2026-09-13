@@ -22,7 +22,12 @@ Work the phases in order. Each phase has acceptance criteria. Do not advance unt
 
 ---
 
-## Phase 0 — Repo transfer (manual, human-only)
+## Phase 0 — Repo transfer (manual, human-only)  ✅ DONE 2026-09-13
+
+> Repo pushed to `KJohnson-700/Music-Legends`. Railway kept; deploys now run from the local
+> checkout via `railway up --service <name> --ci` because the Railway↔GitHub link is tied to
+> the old GitHub account. Both TMA services deployed and healthy. No Discord service exists
+> on Railway (deleted months ago) — consistent with Discord being bugfix-only.
 
 Do this before any code changes. Do not refactor while services are being repointed.
 
@@ -51,7 +56,13 @@ and Mini App both respond.
 
 ---
 
-## Phase 1 — Decouple the battle engine
+## Phase 1 — Decouple the battle engine  ✅ DONE 2026-09-13
+
+> Landed as `core/battle/` (config, types, resolver, manager) + `adapters/discord_battle.py`,
+> `adapters/tma_battle.py`. `battle_engine.py` is now a shim that never imports discord.
+> Legacy `BattleEngine` class deleted; all callers use `resolve_match()`.
+> Seeded tests: `tests/test_resolver.py`. Verified: `core.battle.resolver` and
+> `tma.api.routers.battle` import with discord.py blocked.
 
 **Problem:** `battle_engine.py` does `import discord` at module level, and
 `create_battle_embed()` returns a `discord.Embed`. The Telegram FastAPI backend imports this

@@ -233,7 +233,7 @@ class DevSupplyCog(commands.Cog):
 
         await interaction.response.defer()
 
-        from battle_engine import BattleEngine, BattleWagerConfig
+        from core.battle import BattleWagerConfig, resolve_match
         from discord_cards import ArtistCard
 
         def card_to_artist(card: dict) -> ArtistCard:
@@ -282,7 +282,7 @@ class DevSupplyCog(commands.Cog):
         card2 = card_to_artist(u2_champ)
 
         # Run the battle engine
-        result = BattleEngine.execute_battle(card1, card2, "bronze", p1_override=u1_tp, p2_override=u2_tp)
+        result = resolve_match(card1, card2, "bronze", p1_override=u1_tp, p2_override=u2_tp)
         p1 = result["player1"]
         p2 = result["player2"]
 

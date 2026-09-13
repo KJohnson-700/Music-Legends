@@ -13,7 +13,7 @@ from discord.ext import commands
 from discord import Interaction, app_commands, ui
 from typing import Optional
 
-from battle_engine import BattleManager, BattleEngine, BattleWagerConfig
+from core.battle import BattleManager, BattleWagerConfig, resolve_match
 from discord_cards import ArtistCard
 from database import get_db
 from config.economy import BATTLE_WAGERS, calculate_battle_rewards
@@ -624,7 +624,7 @@ class BattleCommands(commands.Cog):
 
         # Step 4 — Execute battle (instant; animation below is theatrical reveal)
         print(f"[BATTLE] Executing: {c_card_data.get('name')} (champ={c_champ_power}, team={c_power}) vs {o_card_data.get('name')} (champ={o_champ_power}, team={o_power})")
-        result = BattleEngine.execute_battle(card1, card2, tier_key, p1_override=c_power, p2_override=o_power)
+        result = resolve_match(card1, card2, tier_key, p1_override=c_power, p2_override=o_power)
         p1 = result["player1"]
         p2 = result["player2"]
         print(f"[BATTLE] Result: winner={result['winner']}, p1_final={p1['final_power']}, p2_final={p2['final_power']}")

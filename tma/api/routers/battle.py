@@ -11,8 +11,7 @@ from tma.api.auth import get_tg_user
 from tma.api.telegram_identity import extract_telegram_id_from_user
 from database import get_db
 from cards_config import compute_card_power, compute_team_power
-from battle_engine import BattleEngine
-from discord_cards import ArtistCard
+from core.battle import CardRef, resolve_match
 from models import PendingTmaBattle, User
 
 router = APIRouter(prefix="/api/battle", tags=["battle"])
@@ -40,18 +39,9 @@ def _build_bot_start_link(battle_id: str) -> str:
     return f"https://t.me/{bot_username}?start=battle_{battle_id}"
 
 
-def _card_to_artist(card: dict) -> ArtistCard:
-    """Build a minimal ArtistCard from a card dict (power via p1_override/p2_override)."""
-    return ArtistCard(
-        card_id=card.get("card_id", "unknown"),
-        artist=card.get("name", "Unknown"),
-        song=card.get("title", "Unknown"),
-        youtube_url=card.get("youtube_url", ""),
-        youtube_id="",
-        view_count=0,
-        thumbnail=card.get("image_url", ""),
-        rarity=card.get("rarity", "common"),
-    )
+def _card_to_ref(card: dict) -> CardRef:
+    """Platform-neutral card for the resolver (power supplied via p1/p2_override)."""
+    return CardRef.from_db_card(card)
 
 
 def _build_collection_pack(db, user_id: str, focus_card_id: str | None = None) -> dict | None:
@@ -180,9 +170,9 @@ def _run_battle(db, challenger_id: int, opponent_id: int,
         compute_card_power(o_champ), [compute_card_power(c) for c in o_cards[1:5]]
     )
 
-    result = BattleEngine.execute_battle(
-        _card_to_artist(c_champ),
-        _card_to_artist(o_champ),
+    result = resolve_match(
+        _card_to_ref(c_champ),
+        _card_to_ref(o_champ),
         wager_tier,
         p1_override=c_power,
         p2_override=o_power,
