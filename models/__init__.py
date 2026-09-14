@@ -541,6 +541,27 @@ class StarsOrder(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     paid_at = Column(DateTime, nullable=True)
     fulfilled_at = Column(DateTime, nullable=True)
+    consumed_at = Column(DateTime, nullable=True)  # craft_boost: spent on a craft
+
+
+class CraftEvent(Base):
+    """Crafting / duplicate fusion audit (Phase 4.5). Counts toward the crafted allocation per rarity."""
+    __tablename__ = "craft_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=False, index=True)
+    input_card_ids = Column(Text, nullable=False)     # JSON list of 4 ids
+    input_rarity = Column(String, nullable=False)
+    target_rarity = Column(String, nullable=False, index=True)
+    success = Column(Boolean, nullable=False, default=False)
+    output_card_id = Column(String, nullable=True)
+    output_family = Column(String, nullable=True)
+    inherited_family = Column(String, nullable=True)
+    boost_order_id = Column(String, nullable=True)
+    success_pct = Column(Integer, nullable=True)
+    roll_value = Column(Float, nullable=True)
+    seed = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # Aliases for backward compatibility (database.py uses singular names)

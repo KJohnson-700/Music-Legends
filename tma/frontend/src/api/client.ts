@@ -80,3 +80,8 @@ export const setReferrerHost = (host_token: string)       => api.post('/api/me/r
 export const getStarsCatalog = ()                         => api.get('/api/stars/catalog')
 export const createStarsInvoice = (product_type: 'tier_pack' | 'creator_pack', ref: string) => api.post('/api/stars/invoice', { product_type, ref })
 export const getStarsOrder   = (order_id: string)         => api.get(`/api/stars/orders/${order_id}`)
+// Phase 4.5 — crafting / duplicate fusion
+export const getCraftOptions = ()                         => api.get('/api/craft/options')
+export const previewCraft    = (card_ids: string[])       => api.post('/api/craft/preview', { card_ids })
+export const doCraft         = (card_ids: string[], boost_order_id?: string) => api.post('/api/craft', { card_ids, boost_order_id })
+export const getCraftHistory = ()                         => api.get('/api/craft/history')

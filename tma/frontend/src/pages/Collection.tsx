@@ -62,7 +62,10 @@ export default function Collection() {
     <div style={{ padding: '16px 16px 80px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ color: '#F4A800', margin: 0 }}>🃏 My Collection ({cards.length})</h3>
-        <button onClick={load} style={{ background: 'none', border: 'none', color: '#8888aa', fontSize: 18, cursor: 'pointer' }}>↻</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={() => navigate('/craft')} style={{ background: '#6B2EBE', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>🧪 Craft</button>
+          <button onClick={load} style={{ background: 'none', border: 'none', color: '#8888aa', fontSize: 18, cursor: 'pointer' }}>↻</button>
+        </div>
       </div>
 
       {cards.length === 0 && (

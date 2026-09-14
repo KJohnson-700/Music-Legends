@@ -250,7 +250,19 @@ meaningfully better than chance rate.
 
 ---
 
-## Phase 4.5 — Crafting (duplicate fusion)
+## Phase 4.5 — Crafting (duplicate fusion)  ✅ DONE 2026-09-14
+
+> Landed: `core/crafting.py` (rules: 4 same-rarity inputs → next rarity; success 65/50/35/20% for
+> rare/epic/legendary/mythic targets; Stars boost +25pp capped at 95%; **Inherit** genre rule; floor =
+> one input returned), `services/crafting_service.py` (single-transaction consume → roll → grant →
+> `craft_events` row; Postgres row locks on inputs; boost order consumed BEFORE the roll and released +
+> refunded by the router if the transaction fails), Stars product `craft_boost` (15/30/60/120⭐),
+> API `/api/craft/{options,preview,,history}`, Craft screen in the Mini App (Home menu + Collection button).
+> Supply decision: crafted cards draw from a **separate crafted allocation** per rarity per season
+> (`CRAFT_CAPS`, counted from `craft_events`), not the season pack pool. Note: the JSON-backed
+> `services/season_supply_system.py` is only consulted by the Stripe path and is not durable on Railway;
+> tier/creator pack grants never touch it (pre-existing gap, out of scope here).
+> Tests: `tests/test_crafting.py` (16).
 
 **Why:** Telegram's own gift economy runs two mechanics — Upgrade (spend Stars for a
 guaranteed collectible) and Crafting (combine up to four gifts for a probabilistic

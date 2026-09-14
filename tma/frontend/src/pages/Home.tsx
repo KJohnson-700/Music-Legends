@@ -70,6 +70,7 @@ export default function Home() {
           { label: '🤝 Trade', path: '/trade', desc: 'Player trades' },
           { label: '📦 My Packs', path: '/packs', desc: 'Open owned packs' },
           { label: '⚔️ Battle', path: '/battle', desc: 'Challenge players' },
+          { label: '🧪 Craft', path: '/craft', desc: 'Fuse 4 duplicates into a rarer card' },
         ].map((item) => (
           <button
             key={item.path}

@@ -1,5 +1,17 @@
 # 📋 CHANGELOG
 
+## 🧪 **Refactor Phase 4.5 — 2026-09-14** (crafting / duplicate fusion)
+
+### ✅ **Duplicates finally have a use**
+- **NEW**: fuse four cards of one rarity for a roll at the next rarity up (rare 65% · epic 50% · legendary 35% · mythic 20%). Inputs are consumed win or lose; on a miss one input comes back.
+- **NEW**: genre **Inherit** rule — four cards of one genre guarantee that genre on the result; mixed inputs roll a random genre. Pairs with the two-per-genre lineup rule.
+- **NEW**: Stars boost (+25 points, max 95%) as a second Stars sink: 15/30/60/120 ⭐ by target rarity. Charged before the roll, single-use, refunded automatically if the craft transaction fails.
+- **NEW**: crafted allocation per rarity per season (`CRAFT_CAPS`), separate from pack supply; `craft_events` audit table with seed for replay.
+- **NEW**: API `GET /api/craft/options`, `POST /api/craft/preview`, `POST /api/craft`, `GET /api/craft/history`; Craft screen (`Craft.tsx`) reachable from Home and the Collection header.
+- **NEW**: `stars_orders.consumed_at`; Alembic `c3e5f7a9b1d2`.
+- **NOT DONE (by design)**: staking. Cards already have a use — battling.
+- **TESTS**: `tests/test_crafting.py` — 16 tests incl. atomic consumption, floor return, boost lifecycle and refund release, cap exhaustion, seeded replay, API.
+
 ## ⭐ **Refactor Phase 5 — 2026-09-13** (Telegram Stars)
 
 ### ✅ **Mini App purchases now use Telegram Stars**

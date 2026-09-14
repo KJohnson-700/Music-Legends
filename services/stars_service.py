@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 PRODUCT_TIER = "tier_pack"
 PRODUCT_CREATOR = "creator_pack"
+PRODUCT_CRAFT_BOOST = "craft_boost"  # Phase 4.5: +25% on one craft
 TIER_LABELS = {"community": "Community Pack", "gold": "Gold Pack", "platinum": "Platinum Pack"}
 
 # Test seam: (title, description, payload, stars) -> invoice url
@@ -90,7 +91,8 @@ def catalog(db) -> Dict[str, Any]:
             packs[p.pack_id] = creator_pack_price_stars(p)
     finally:
         session.close()
-    return {"currency": "XTR", "tiers": tiers, "packs": packs}
+    from core.crafting import BOOST_STARS
+    return {"currency": "XTR", "tiers": tiers, "packs": packs, "craft_boosts": dict(BOOST_STARS)}
 
 
 # ── host attribution ───────────────────────────────────────────────────────
@@ -148,8 +150,18 @@ async def create_order(db, user: Dict[str, Any], product_type: str, ref: str) ->
             product_ref = ref
         finally:
             session.close()
+    elif product_type == PRODUCT_CRAFT_BOOST:
+        from core.crafting import BOOST_PCT, BOOST_STARS, normalize_rarity
+        target = normalize_rarity(ref)
+        if target not in BOOST_STARS:
+            raise ValueError("Boost target must be rare, epic, legendary or mythic")
+        stars = BOOST_STARS[target]
+        title = f"Craft Boost ({target.title()})"
+        description = f"+{BOOST_PCT}% success on one {target} craft"
+        usd_cents = stars * 2
+        product_ref = target
     else:
-        raise ValueError("product_type must be tier_pack or creator_pack")
+        raise ValueError("product_type must be tier_pack, creator_pack or craft_boost")
 
     host_token, host_bps = host_context(db, uid)
     order_id = "so_" + secrets.token_hex(8)
@@ -284,6 +296,9 @@ def handle_successful_payment(db, *, telegram_id: int, payload: str, charge_id: 
         if product_type == PRODUCT_TIER:
             result = fulfill_tier_pack(db, buyer_id, ref, payment_method="stars",
                                        external_id=ext, amount_cents=q["net_cents"])
+        elif product_type == PRODUCT_CRAFT_BOOST:
+            # Nothing to deliver: the fulfilled order itself is the credit, spent by crafting_service.
+            result = {"product_type": PRODUCT_CRAFT_BOOST, "boost_target": ref, "cards": []}
         else:
             result = fulfill_creator_pack(db, buyer_id, ref, payment_method="stars",
                                           external_id=ext, amount_cents=q["net_cents"])

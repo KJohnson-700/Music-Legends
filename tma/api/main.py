@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from tma.api.routers import users, cards, packs, economy, battle, marketplace, trade, dust, battle_pass, stars, telegram_hosts  # noqa: E402
+from tma.api.routers import users, cards, packs, economy, battle, marketplace, trade, dust, battle_pass, stars, craft, telegram_hosts  # noqa: E402
 
 app = FastAPI(title="Music Legends TMA", version="1.0.0", docs_url="/api/docs")
 
@@ -36,7 +36,8 @@ app.include_router(marketplace.router)
 app.include_router(trade.router)
 app.include_router(dust.router)
 app.include_router(battle_pass.router)
-app.include_router(stars.router)  # Phase 5: Telegram Stars replaces Stripe inside the Mini App
+app.include_router(stars.router)
+app.include_router(craft.router)  # Phase 4.5: crafting / duplicate fusion  # Phase 5: Telegram Stars replaces Stripe inside the Mini App
 app.include_router(telegram_hosts.router)
 
 # ── Telegram Bot webhook ───────────────────────────────────────────

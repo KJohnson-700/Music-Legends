@@ -11,6 +11,7 @@ import Daily from './pages/Daily'
 import Store from './pages/Store'
 import Market from './pages/Market'
 import Trade from './pages/Trade'
+import Craft from './pages/Craft'
 import { setReferrerHost } from './api/client'
 
 function Inner() {
@@ -65,6 +66,7 @@ function Inner() {
         <Route path="/trade"      element={<Trade />} />
         <Route path="/battle"     element={<Battle />} />
         <Route path="/daily"      element={<Daily />} />
+        <Route path="/craft"      element={<Craft />} />
       </Routes>
       <NavBar />
     </div>
