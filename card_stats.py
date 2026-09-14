@@ -59,15 +59,12 @@ def assign_rarity_by_views(views: int) -> str:
         return "common"
 
 def calculate_base_power_by_views(views: int) -> int:
-    """Calculate base power based on view count tiers"""
-    if views >= 1_000_000_000:  # Legendary: 90-100 power
-        return random.randint(90, 100)
-    elif views >= 100_000_000:  # Epic: 70-89 power
-        return random.randint(70, 89)
-    elif views >= 10_000_000:   # Rare: 50-69 power
-        return random.randint(50, 69)
-    else:                       # Common: 30-49 power
-        return random.randint(30, 49)
+    """Base stat (0-100) from view count on a log scale (Phase 3), with a small
+    jitter for variety. Replaces the old four random bands (30-49/50-69/70-89/90-100)
+    whose cliffs made view counts either meaningless or decisive."""
+    from core.power import stat_from_views, STAT_MAX
+    base = stat_from_views(views)
+    return max(0, min(STAT_MAX, base + random.randint(-3, 3)))
 
 def calculate_cost(power: int) -> int:
     """Calculate cost based on power (1 cost per 10 power, minimum 1)"""

@@ -9,14 +9,8 @@ RARITY_EMOJI = {
     "mythic": "🔴",   # 🔴
 }
 
-# Battle power bonuses by rarity
-RARITY_BONUS = {
-    "common": 0,
-    "rare": 5,
-    "epic": 10,
-    "legendary": 20,
-    "mythic": 35,
-}
+# Battle power bonuses by rarity — canonical values live in core.power
+from core.power import RARITY_BONUS, battle_power as _battle_power, team_power as _team_power  # noqa: E402
 
 # Tier emoji map
 TIER_EMOJI = {
@@ -27,20 +21,11 @@ TIER_EMOJI = {
 
 
 def compute_card_power(card: dict) -> int:
-    """Compute battle power directly from card DB stats.
-    Formula: average of 5 stats (0-100 each) + rarity bonus -> range 0-135."""
-    base = ((card.get('impact', 50) or 50) +
-            (card.get('skill', 50) or 50) +
-            (card.get('longevity', 50) or 50) +
-            (card.get('culture', 50) or 50) +
-            (card.get('hype', 50) or 50)) // 5
-    rarity = (card.get('rarity') or 'common').lower()
-    return base + RARITY_BONUS.get(rarity, 0)
+    """Battle power from card DB stats. Delegates to core.power.battle_power
+    (Phase 3: log-compressed, range 70-135, display scale unchanged)."""
+    return _battle_power(card)
 
 
 def compute_team_power(champ_power: int, support_powers: list) -> int:
-    """Weighted team power: champion counts double.
-    Formula: (champ*2 + sum(supports)) / (2 + len(supports))"""
-    if not support_powers:
-        return champ_power
-    return (champ_power * 2 + sum(support_powers)) // (2 + len(support_powers))
+    """Weighted team power: champion counts double. Delegates to core.power."""
+    return _team_power(champ_power, support_powers)

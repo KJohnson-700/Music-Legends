@@ -363,16 +363,16 @@ class GameplayCommands(commands.Cog):
         self.economy.initialize_economy_tables()
         
     def _get_power_tier(self, power: int) -> str:
-        """Get power tier description based on power level"""
-        if power >= 90:
+        """Get power tier description based on power level (compressed 70-135 scale)"""
+        if power >= 125:
             return "🔥 **GOD TIER** - Untouchable!"
-        elif power >= 80:
+        elif power >= 115:
             return "⭐ **LEGENDARY** - Elite Status!"
-        elif power >= 70:
+        elif power >= 105:
             return "🟣 **EPIC** - Powerful Force!"
-        elif power >= 60:
+        elif power >= 95:
             return "🔵 **RARE** - Above Average!"
-        elif power >= 50:
+        elif power >= 85:
             return "⚪ **COMMON** - Standard Power!"
         else:
             return "🌱 **ROOKIE** - Growing Potential!"

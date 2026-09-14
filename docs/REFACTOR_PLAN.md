@@ -120,7 +120,15 @@ workers locally and confirm a match created on one is visible to the other.
 
 ---
 
-## Phase 3 — Log-compress power
+## Phase 3 — Log-compress power  ✅ DONE 2026-09-13
+
+> Landed as `core/power.py`. Reality differed from the premise: battle power was already
+> `mean(5 stats) + rarity bonus` (10–135, ~13x spread), with view counts feeding stats through
+> four random bands. Now `power = 70 + 0.4*mean(stats) + rarity bonus` (70–135, display scale
+> unchanged) and `stat_from_views()` is a log10 curve. Verified on the full generation envelope:
+> max/min = 1.82x; 35% flips two rarity tiers apart at typical stats; floor×1.35 < ceiling.
+> Tests: `tests/test_power.py`. Not yet verified against the production card table (prod DB read
+> needs explicit approval) — run `core.power.power_spread()` over `cards` to confirm.
 
 **This unblocks Phase 4. Do it first.**
 

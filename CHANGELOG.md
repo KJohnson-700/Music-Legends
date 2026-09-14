@@ -1,5 +1,16 @@
 # 📋 CHANGELOG
 
+## 📐 **Refactor Phase 3 — 2026-09-13** (log-compressed power)
+
+### ✅ **Card power compressed so multipliers matter**
+- **NEW**: `core/power.py` — single source of truth: `battle_power()`, `team_power()`, `stat_from_views()`, `power_tier()`, `power_spread()`.
+- **CHANGED**: battle power is now `70 + 0.4 × mean(5 stats) + rarity bonus` (common 0 / rare 4 / epic 8 / legendary 15 / mythic 25). Range 70–135 instead of 10–135; display scale (`/135`) unchanged so no UI or frontend changes.
+- **CHANGED**: `card_stats.calculate_base_power_by_views()` uses a log10 curve (5M views ≈ 35, 100M ≈ 65, 1B ≈ 88) instead of four random bands.
+- **CHANGED**: power tier labels (`ui/brand.py`, `cogs/gameplay.py`) re-thresholded for the compressed range.
+- **CHANGED**: `cards_config.compute_card_power` / `compute_team_power` / `RARITY_BONUS` delegate to `core.power` (all 11 call sites untouched).
+- **NEW**: `tests/test_power.py` — 18 tests incl. acceptance: max/min < 2x across every stat×rarity combo the creation paths can produce; 35% flips two tiers apart; floor×1.35 < ceiling.
+- **NOTE**: existing cards' displayed power rises (e.g. common with avg 50: 50 → 90). No stored data changes; power is computed on read.
+
 ## 🧱 **Refactor Phase 1 — 2026-09-13** (Telegram-primary track)
 
 ### ✅ **Battle engine decoupled from discord.py**

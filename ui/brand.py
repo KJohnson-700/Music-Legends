@@ -28,12 +28,12 @@ RARITY = {
     "mythic":    {"color": PINK,     "emoji": "💎", "badge": "💎 Mythic",    "bar_color": "█"},
 }
 
-POWER_TIERS = [
-    (90, "💫 S-Tier"),
-    (75, "⚡ A-Tier"),
-    (60, "🔥 B-Tier"),
-    (45, "🎵 C-Tier"),
-    (0,  "🎶 D-Tier"),
+POWER_TIERS = [  # compressed scale (core.power): 70-135
+    (125, "💫 S-Tier"),
+    (115, "⚡ A-Tier"),
+    (105, "🔥 B-Tier"),
+    (95,  "🎵 C-Tier"),
+    (0,   "🎶 D-Tier"),
 ]
 
 

@@ -121,47 +121,39 @@ def seed_dev_supply(db, seed_creator_pack):
 # ─────────────────────────────────────────────
 
 class TestComputeCardPower:
-    """_compute_card_power() returns (sum/5) + rarity_bonus."""
+    """compute_card_power() = 70 + 0.4*avg(5 stats) + rarity bonus (Phase 3 compressed).
+    Acceptance coverage lives in tests/test_power.py."""
 
     def _power(self, card_dict):
-        # Replicate the formula directly (no Discord needed)
-        RARITY_BONUS = {"common": 0, "rare": 5, "epic": 10, "legendary": 20, "mythic": 35}
-        base = ((card_dict.get('impact', 50) or 50) +
-                (card_dict.get('skill', 50) or 50) +
-                (card_dict.get('longevity', 50) or 50) +
-                (card_dict.get('culture', 50) or 50) +
-                (card_dict.get('hype', 50) or 50)) // 5
-        rarity = (card_dict.get('rarity') or 'common').lower()
-        return base + RARITY_BONUS.get(rarity, 0)
+        from cards_config import compute_card_power
+        return compute_card_power(card_dict)
 
     def test_common_avg50(self):
         card = dict(impact=50, skill=50, longevity=50, culture=50, hype=50, rarity="common")
-        assert self._power(card) == 50
+        assert self._power(card) == 90
 
     def test_epic_bonus(self):
         card = dict(impact=70, skill=80, longevity=60, culture=75, hype=65, rarity="epic")
-        # avg = (70+80+60+75+65)//5 = 350//5 = 70; +10 epic = 80
-        assert self._power(card) == 80
+        # avg = 350//5 = 70 → 70 + 28 + 8 = 106
+        assert self._power(card) == 106
 
     def test_legendary_bonus(self):
         card = dict(impact=100, skill=100, longevity=100, culture=100, hype=100, rarity="legendary")
-        # avg = 100; +20 legendary = 120
-        assert self._power(card) == 120
+        assert self._power(card) == 125
 
     def test_mythic_max(self):
         card = dict(impact=100, skill=100, longevity=100, culture=100, hype=100, rarity="mythic")
-        # avg = 100; +35 mythic = 135
         assert self._power(card) == 135
 
     def test_null_stats_default_to_50(self):
         card = dict(impact=None, skill=None, longevity=None, culture=None, hype=None, rarity="common")
-        assert self._power(card) == 50
+        assert self._power(card) == 90
 
     def test_different_rarities_same_stats_differ(self):
         base = dict(impact=70, skill=70, longevity=70, culture=70, hype=70)
-        common_power = self._power({**base, "rarity": "common"})   # 70
-        rare_power   = self._power({**base, "rarity": "rare"})     # 75
-        epic_power   = self._power({**base, "rarity": "epic"})     # 80
+        common_power = self._power({**base, "rarity": "common"})
+        rare_power   = self._power({**base, "rarity": "rare"})
+        epic_power   = self._power({**base, "rarity": "epic"})
         assert common_power < rare_power < epic_power
 
 
