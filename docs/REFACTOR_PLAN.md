@@ -307,7 +307,20 @@ refunded if the transaction fails; season supply accounting stays balanced.
 
 ---
 
-## Phase 5 — Telegram Stars
+## Phase 5 — Telegram Stars  ✅ DONE 2026-09-13
+
+> Landed: `core/payments/stars.py` (price parity 2¢/⭐, developer net 1.33¢/⭐, **host share on net**),
+> `services/stars_service.py` (orders, invoice links via `createInvoiceLink` XTR, pre-checkout
+> validation, idempotent fulfilment on `telegram_payment_charge_id`, admin refund via
+> `refundStarPayment`), `services/pack_fulfillment.py` (rail-agnostic: tier packs grant cards +
+> bonuses; creator packs land unopened in My Packs), `stars_orders` table + `rail/gross_stars/net_cents`
+> on `revenue_events` (Alembic `a9c2d4e6f8b1`), bot handlers for `pre_checkout_query` and
+> `successful_payment`, API `/api/stars/{catalog,invoice,orders}`, Store screen pays with Stars via
+> `openInvoice`. The TMA Stripe checkout router was removed; Stripe stays for Discord
+> (`stripe_payments.py`, `webhooks/stripe_hook.py` untouched). Tests: `tests/test_stars.py` (14).
+>
+> Not verified live: a real Stars payment needs the bot in Telegram (BotFather bots accept Stars
+> with no setup). Do one 1-Star test purchase after deploy and check `stars_orders` + `revenue_events`.
 
 **Problem:** `stripe_payments.py` exists; Stars do not. Under Apple and Google policy,
 digital goods in a Mini App must use Stars — fiat cannot be charged directly. The

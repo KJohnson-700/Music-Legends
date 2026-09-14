@@ -76,5 +76,7 @@ export const getDust         = ()                         => api.get('/api/dust'
 export const dustCards       = (card_ids: string[])       => api.post('/api/dust/dust_cards', { card_ids })
 
 export const setReferrerHost = (host_token: string)       => api.post('/api/me/referrer', { host_token })
-export const checkoutTierPack = (tier: string)            => api.post('/api/checkout/tier-pack', { tier })
-export const checkoutCreatorPack = (pack_id: string)       => api.post('/api/checkout/creator-pack', { pack_id })
+// Phase 5 — Telegram Stars checkout (Mini App)
+export const getStarsCatalog = ()                         => api.get('/api/stars/catalog')
+export const createStarsInvoice = (product_type: 'tier_pack' | 'creator_pack', ref: string) => api.post('/api/stars/invoice', { product_type, ref })
+export const getStarsOrder   = (order_id: string)         => api.get(`/api/stars/orders/${order_id}`)

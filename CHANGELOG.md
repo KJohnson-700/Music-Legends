@@ -1,5 +1,18 @@
 # 📋 CHANGELOG
 
+## ⭐ **Refactor Phase 5 — 2026-09-13** (Telegram Stars)
+
+### ✅ **Mini App purchases now use Telegram Stars**
+- **NEW**: `core/payments/stars.py` — USD list price → Stars at 2¢/⭐ ($2.99 → 150⭐, $4.99 → 250⭐), developer net 1.33¢/⭐, and the host revenue share computed on **net**, never gross.
+- **NEW**: `services/stars_service.py` — order lifecycle: pending → paid → fulfilled/failed/refunded. Invoice links via `createInvoiceLink` (currency `XTR`), pre-checkout validation (order exists, still pending, amount matches), fulfilment idempotent on the Telegram charge id, unknown-order payments logged for manual refund, admin refund through `refundStarPayment`.
+- **NEW**: `services/pack_fulfillment.py` — shared by both rails. Tier packs grant cards + bonus gold/tickets immediately; creator packs create an unopened purchase so the player gets the pack-opening reveal in My Packs.
+- **NEW**: `stars_orders` table; `revenue_events.rail / gross_stars / net_cents`. Alembic `a9c2d4e6f8b1` (auto-applied on boot as well).
+- **NEW**: bot handlers `pre_checkout_query` + `successful_payment` (with a confirmation message and a button back into the app).
+- **NEW**: API `GET /api/stars/catalog`, `POST /api/stars/invoice`, `GET /api/stars/orders[/{id}]`, `POST /api/stars/orders/{id}/refund` (admin key).
+- **CHANGED**: Store screen — “⭐ 150” buttons for tier packs and creator packs, `openInvoice` flow, delivery screen showing the cards. Gold purchases unchanged.
+- **REMOVED**: `tma/api/routers/stripe_checkout.py` and the Stripe buttons in the Mini App (Apple/Google policy). Stripe remains for Discord.
+- **TESTS**: `tests/test_stars.py` — 14 tests: economics, end-to-end fulfilment with a 20% host on net, idempotent replay, creator pack purchase, pre-checkout rejections, API.
+
 ## ⚔️ **Refactor Phase 4 — 2026-09-13** (battle is a game now)
 
 ### ✅ **Genre ring, lineups, abilities, momentum**

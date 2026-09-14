@@ -6,7 +6,7 @@ import os
 import logging
 from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Bot
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, PreCheckoutQueryHandler, filters
 
 _app: Application | None = None
 _bot: Bot | None = None
@@ -116,11 +116,56 @@ async def cmd_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def get_bot() -> Bot | None:
+    """The live Bot instance (None until startup or when no token is configured)."""
+    return _bot
+
+
+async def on_pre_checkout(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Telegram Stars: confirm the order is still valid. Must answer within 10s."""
+    from database import get_db
+    from services.stars_service import validate_pre_checkout
+    q = update.pre_checkout_query
+    ok, msg = validate_pre_checkout(get_db(), q.invoice_payload, q.total_amount, q.currency)
+    await q.answer(ok=ok, error_message=(msg or None) if not ok else None)
+    logger.info(f"[STARS] pre_checkout payload={q.invoice_payload} ok={ok} {msg}")
+
+
+async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Telegram Stars: money has moved — fulfil the order (idempotent)."""
+    from database import get_db
+    from services.stars_service import handle_successful_payment
+    sp = update.message.successful_payment
+    result = handle_successful_payment(
+        get_db(),
+        telegram_id=update.effective_user.id if update.effective_user else 0,
+        payload=sp.invoice_payload,
+        charge_id=sp.telegram_payment_charge_id,
+        total_amount=sp.total_amount,
+        currency=sp.currency,
+        provider_charge_id=sp.provider_payment_charge_id,
+    )
+    status = result.get("status")
+    try:
+        if status == "fulfilled":
+            n = len(result.get("cards") or [])
+            text = (f"⭐ Payment received! {n} cards added to your collection." if n
+                    else "⭐ Payment received! Your pack is waiting in My Packs.")
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Open Music Legends", web_app={"url": _tma_url()})]]))
+        elif status == "failed":
+            await update.message.reply_text("⚠️ Payment received but delivery failed. Support has been notified; you will be refunded if it can't be fixed.")
+    except Exception as e:  # never let a chat error break fulfilment
+        logger.warning(f"[STARS] post-payment message failed: {e}")
+
+
 def build_application() -> Application:
     token = os.environ["TELEGRAM_BOT_TOKEN"].strip()
     application = Application.builder().token(token).build()
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("link", cmd_link))
+    application.add_handler(PreCheckoutQueryHandler(on_pre_checkout))
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
     return application
 
 

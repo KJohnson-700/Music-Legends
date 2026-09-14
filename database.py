@@ -1395,8 +1395,12 @@ class Database:
         host_cents: int,
         creator_cents: int = 0,
         host_token: Optional[str] = None,
+        rail: str = "stripe",
+        gross_stars: int = 0,
+        net_cents: Optional[int] = None,
     ) -> bool:
-        """Insert revenue_events row if session id not seen (idempotent)."""
+        """Insert revenue_events row if session id not seen (idempotent).
+        For Stars, `net_cents` is what the developer actually receives; host share is on net."""
         session = self.get_session()
         try:
             exists = session.query(RevenueEvent).filter_by(stripe_session_id=stripe_session_id).first()
@@ -1412,6 +1416,9 @@ class Database:
                     host_cents=host_cents,
                     creator_cents=creator_cents,
                     host_token=host_token,
+                    rail=rail,
+                    gross_stars=int(gross_stars or 0),
+                    net_cents=int(net_cents if net_cents is not None else (platform_cents + host_cents)),
                 )
             )
             session.commit()

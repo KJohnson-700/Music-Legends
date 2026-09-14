@@ -511,6 +511,36 @@ class RevenueEvent(Base):
     creator_cents = Column(Integer, default=0)
     host_token = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Phase 5: which rail + Stars-specific amounts (host share is computed on net_cents)
+    rail = Column(String, default='stripe')
+    gross_stars = Column(Integer, default=0)
+    net_cents = Column(Integer, default=0)
+
+
+class StarsOrder(Base):
+    """Telegram Stars purchase (Phase 5). One row per invoice; idempotent on charge id."""
+    __tablename__ = "stars_orders"
+
+    order_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=True)
+    product_type = Column(String, nullable=False)   # tier_pack | creator_pack
+    product_ref = Column(String, nullable=False)    # tier name or pack_id
+    title = Column(String, nullable=True)
+    stars_amount = Column(Integer, nullable=False)
+    usd_cents_ref = Column(Integer, nullable=True)  # USD list price the Stars price derives from
+    host_token = Column(String, nullable=True)
+    host_share_bps = Column(Integer, nullable=True)
+    status = Column(String, nullable=False, default="pending")  # pending|paid|fulfilled|failed|refunded
+    invoice_link = Column(Text, nullable=True)
+    telegram_payment_charge_id = Column(String, nullable=True, unique=True)
+    provider_payment_charge_id = Column(String, nullable=True)
+    cards_json = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    error = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    paid_at = Column(DateTime, nullable=True)
+    fulfilled_at = Column(DateTime, nullable=True)
 
 
 # Aliases for backward compatibility (database.py uses singular names)
