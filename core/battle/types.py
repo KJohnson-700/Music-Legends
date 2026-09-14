@@ -28,10 +28,13 @@ class CardRef:
     power: int = 0
     image_url: str = ""
     youtube_url: str = ""
+    genre_family: str = "NEUTRAL"   # Phase 4a: HIP_HOP / POP / ROCK / ELECTRONIC / SOUL / NEUTRAL
+    momentum: bool = False          # Phase 4e: weekly top mover
     extra: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         self.rarity = (self.rarity or "common").lower()
+        self.genre_family = (self.genre_family or "NEUTRAL").upper()
 
     # Aliases so adapters written against ArtistCard keep working
     @property
@@ -59,6 +62,8 @@ class CardRef:
             power=int(power if power is not None else card.get("power", 0) or 0),
             image_url=card.get("image_url", "") or "",
             youtube_url=card.get("youtube_url", "") or "",
+            genre_family=card.get("genre_family") or "NEUTRAL",
+            momentum=bool(card.get("momentum") or card.get("is_hot") or False),
         )
 
 

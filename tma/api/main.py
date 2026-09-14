@@ -43,6 +43,40 @@ app.include_router(telegram_hosts.router)
 from tma.api.bot.handlers import setup_webhook_route  # noqa: E402
 setup_webhook_route(app)
 
+# ── Phase 4 background jobs (opt-in) ──────────────────────────────
+# ENABLE_MOMENTUM_JOB=true → weekly YouTube view refresh (Mon 03:00 UTC) and a
+# daily genre backfill batch (04:00 UTC). Single-replica only; no Redis needed.
+@app.on_event("startup")
+async def _start_phase4_jobs():
+    if os.environ.get("ENABLE_MOMENTUM_JOB", "false").lower() not in ("1", "true", "yes"):
+        return
+    try:
+        import asyncio
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from database import get_db
+
+        def _momentum():
+            from services.momentum_service import refresh_momentum
+            return refresh_momentum(get_db())
+
+        def _genres():
+            from services.genre_resolver import backfill_genres
+            return backfill_genres(get_db(), limit=int(os.environ.get("GENRE_BACKFILL_BATCH", "200")))
+
+        sched = AsyncIOScheduler(timezone="UTC")
+        loop = asyncio.get_event_loop()
+        sched.add_job(lambda: loop.run_in_executor(None, _momentum),
+                      CronTrigger(day_of_week="mon", hour=3, minute=0), id="momentum_weekly")
+        sched.add_job(lambda: loop.run_in_executor(None, _genres),
+                      CronTrigger(hour=4, minute=0), id="genre_backfill_daily")
+        sched.start()
+        app.state.phase4_scheduler = sched
+        print("[JOBS] Phase 4 scheduler started (momentum weekly, genre backfill daily)")
+    except Exception as e:  # never block startup on a scheduler problem
+        print(f"[JOBS] Phase 4 scheduler not started: {e}")
+
+
 # ── Serve built React app (only if dist/ exists) ──────────────────
 _dist = os.path.join(os.path.dirname(__file__), "../frontend/dist")
 if os.path.isdir(_dist):

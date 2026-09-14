@@ -2,7 +2,9 @@ import { useEffect, useState, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mountMainButton, setMainButtonParams, onMainButtonClick, unmountMainButton,
          hapticFeedbackNotificationOccurred } from '@telegram-apps/sdk'
-import { getPacks, createChallenge, acceptBattle, cancelBattle, getBattle, getBattleUpdates, registerBattlePlayer, getBattleOpponents, searchBattleOpponents } from '../api/client'
+import { getPacks, createChallenge, acceptBattle, cancelBattle, getBattle, getBattleUpdates, registerBattlePlayer, getBattleOpponents, searchBattleOpponents, getLineupCards, scoutBattle } from '../api/client'
+import LineupBuilder, { type LineupCard } from '../components/LineupBuilder'
+import RoundReveal from '../components/RoundReveal'
 
 type Phase = 'select-pack' | 'challenge-sent' | 'accept' | 'resolving' | 'result'
 
@@ -31,6 +33,42 @@ export default function Battle() {
   const [countdown, setCountdown] = useState('')
   const [result, setResult] = useState<any>(null)
   const [loadingBattle, setLoadingBattle] = useState(!!battleIdParam)
+  // Phase 4 — lineup builder state
+  const [lineupCards, setLineupCards] = useState<LineupCard[]>([])
+  const [lineup, setLineup] = useState<string[]>([])
+  const [ability, setAbility] = useState<string>('')
+  const [abilitySlot, setAbilitySlot] = useState<number | null>(null)
+  const [scoutInfo, setScoutInfo] = useState<{ slot: number; family: string } | null>(null)
+  const [useLineup, setUseLineup] = useState(true)
+  const [meIsChallenger, setMeIsChallenger] = useState(true)
+  const lineupReady = lineup.length === 3 && !((ability === 'amp' || ability === 'scout') && abilitySlot === null)
+  const loadLineupCards = async () => {
+    try {
+      const r = await getLineupCards()
+      const cards: LineupCard[] = r.data?.cards || []
+      setLineupCards(cards)
+      if (cards.length < 3) setUseLineup(false)
+      else if (lineup.length === 0 && Array.isArray(r.data?.suggested)) setLineup(r.data.suggested.slice(0, 3))
+    } catch { /* fall back to pack selection */ setUseLineup(false) }
+  }
+  const resetLineupAbility = () => { setAbility(''); setAbilitySlot(null); setScoutInfo(null) }
+  const lineupBody = () => {
+    const body: any = { lineup }
+    if (scoutInfo) { body.ability = 'scout'; body.ability_slot = scoutInfo.slot }
+    else if (ability) { body.ability = ability; if (abilitySlot !== null) body.ability_slot = abilitySlot }
+    return body
+  }
+  const handleScout = async (slot: number) => {
+    if (!battleId) return
+    try {
+      const r = await scoutBattle(battleId, slot)
+      setScoutInfo({ slot: r.data.slot, family: r.data.family })
+      setAbility('scout'); setAbilitySlot(r.data.slot)
+      if (hapticFeedbackNotificationOccurred.isAvailable()) hapticFeedbackNotificationOccurred('success')
+    } catch (e: any) {
+      alert(e?.response?.data?.detail || 'Scout failed')
+    }
+  }
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const incomingPollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const registerPollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
@@ -103,6 +141,7 @@ export default function Battle() {
     }
     loadBattleUpdates().catch(() => undefined)
     loadOpponents().catch(() => undefined)
+    loadLineupCards().catch(() => undefined)
     // Keep this user battle-registered while the screen is open.
     registerBattlePlayer()
       .then(() => setRegisterError(''))
@@ -155,19 +194,21 @@ export default function Battle() {
   }
 
   const handleChallenge = async () => {
-    if (!selectedPackId) return
+    if (useLineup ? !lineupReady : !selectedPackId) return
     const partner = autoResolvedPartner
     if (!partner?.telegram_id) {
       alert('Select who to challenge first')
       return
     }
     const selected = packs.find((p: any) => String(p.pack_id) === String(selectedPackId))
-    const label = selected?.pack_name || selected?.name || selectedPackId
-    if (!window.confirm(`Challenge @${partner.username || partner.telegram_id} using "${label}"?`)) return
+    const label = useLineup ? 'your 3-card lineup' : `"${selected?.pack_name || selected?.name || selectedPackId}"`
+    if (!window.confirm(`Challenge @${partner.username || partner.telegram_id} using ${label}?`)) return
     try {
       const body: any = { opponent_telegram_id: Number(partner.telegram_id), wager_tier: 'casual' }
-      if (selectionType === 'card' || selectedPackId.startsWith('card:')) body.card_id = selectedPackId.replace('card:', '')
+      if (useLineup) Object.assign(body, lineupBody())
+      else if (selectionType === 'card' || selectedPackId.startsWith('card:')) body.card_id = selectedPackId.replace('card:', '')
       else body.pack_id = selectedPackId
+      setMeIsChallenger(true)
       const r = await createChallenge(body)
       setBattleId(r.data.battle_id)
       setExpiresAt(r.data?.expires_at || null)
@@ -199,15 +240,17 @@ export default function Battle() {
   }
 
   const handleAccept = async () => {
-    if (!selectedPackId || !battleId) return
+    if ((useLineup ? !lineupReady : !selectedPackId) || !battleId) return
     const selected = packs.find((p: any) => String(p.pack_id) === String(selectedPackId))
-    const label = selected?.pack_name || selected?.name || selectedPackId
-    if (!window.confirm(`Confirm accepting this battle using "${label}"?`)) return
+    const label = useLineup ? 'your 3-card lineup' : `"${selected?.pack_name || selected?.name || selectedPackId}"`
+    if (!window.confirm(`Confirm accepting this battle using ${label}?`)) return
     try {
       setPhase('resolving')
       const body: any = {}
-      if (selectionType === 'card' || selectedPackId.startsWith('card:')) body.card_id = selectedPackId.replace('card:', '')
+      if (useLineup) Object.assign(body, lineupBody())
+      else if (selectionType === 'card' || selectedPackId.startsWith('card:')) body.card_id = selectedPackId.replace('card:', '')
       else body.pack_id = selectedPackId
+      setMeIsChallenger(false)
       const r = await acceptBattle(battleId, body)
       setResult(r.data.result)
       setPhase('result')
@@ -255,9 +298,9 @@ export default function Battle() {
     if (!mountMainButton.isAvailable()) return
     mountMainButton()
     if (phase === 'select-pack') {
-      const canCreate = !!selectedPackId && !!autoResolvedPartner?.telegram_id
+      const canCreate = (useLineup ? lineupReady : !!selectedPackId) && !!autoResolvedPartner?.telegram_id
       setMainButtonParams({
-        text: canCreate ? '⚔️ Create Challenge' : 'Pick Opponent + Card/Pack',
+        text: canCreate ? '⚔️ Create Challenge' : (useLineup ? 'Pick Opponent + 3 Cards' : 'Pick Opponent + Card/Pack'),
         isEnabled: canCreate,
         isVisible: true,
         backgroundColor: '#E74C3C',
@@ -266,9 +309,10 @@ export default function Battle() {
       return () => { off(); unmountMainButton() }
     }
     if (phase === 'accept') {
+      const canAccept = useLineup ? lineupReady : !!selectedPackId
       setMainButtonParams({
-        text: selectedPackId ? '⚔️ Accept Battle!' : 'Select Your Card or Pack',
-        isEnabled: !!selectedPackId,
+        text: canAccept ? '⚔️ Accept Battle!' : (useLineup ? 'Pick Your 3 Cards' : 'Select Your Card or Pack'),
+        isEnabled: canAccept,
         isVisible: true,
         backgroundColor: '#E74C3C',
       })
@@ -291,12 +335,17 @@ export default function Battle() {
         setResult(null)
         setSelectedPackId('')
         setBattleId('')
+        resetLineupAbility()
         setPhase('select-pack')
       })
       return () => { off(); unmountMainButton() }
     }
     unmountMainButton()
-  }, [phase, selectedPackId, autoResolvedPartner?.telegram_id, battleId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, selectedPackId, autoResolvedPartner?.telegram_id, battleId, useLineup, lineupReady, lineup, ability, abilitySlot, scoutInfo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (phase === 'result' && result && result.format === 'lineup_bo3') {
+    return <RoundReveal result={result} meIsPlayer1={meIsChallenger} rarityColors={RARITY_COLORS} />
+  }
 
   if (phase === 'result' && result) {
     const c = result.challenger, o = result.opponent, winner = result.winner
@@ -490,7 +539,43 @@ export default function Battle() {
           ))}
         </div>
       )}
-      {(phase === 'select-pack' || phase === 'accept') && (
+      {(phase === 'select-pack' || phase === 'accept') && lineupCards.length >= 3 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+          <button onClick={() => setUseLineup(v => !v)}
+            style={{ background: 'transparent', color: '#8888aa', border: '1px solid #2a2760', borderRadius: 6, padding: '4px 8px', fontSize: 11 }}>
+            {useLineup ? 'Use quick pack pick instead' : 'Build a lineup instead'}
+          </button>
+        </div>
+      )}
+      {(phase === 'select-pack' || phase === 'accept') && useLineup && (
+        <LineupBuilder
+          cards={lineupCards}
+          lineup={lineup}
+          onChange={setLineup}
+          ability={ability}
+          abilitySlot={abilitySlot}
+          onAbilityChange={(a, slot) => { setAbility(a); setAbilitySlot(slot) }}
+          abilityLocked={scoutInfo ? 'scout' : null}
+          scoutInfo={scoutInfo}
+          onScout={handleScout}
+          canScout={phase === 'accept' && !!battleId}
+          rarityColors={RARITY_COLORS}
+        />
+      )}
+      {(phase === 'select-pack' || phase === 'accept') && useLineup && !mountMainButton.isAvailable() && (
+        <button
+          onClick={phase === 'accept' ? handleAccept : handleChallenge}
+          disabled={phase === 'accept' ? !lineupReady : (!lineupReady || !autoResolvedPartner?.telegram_id)}
+          style={{
+            width: '100%', padding: '14px 0', marginBottom: 16,
+            background: (phase === 'accept' ? lineupReady : lineupReady && !!autoResolvedPartner?.telegram_id) ? '#E74C3C' : '#4a2a4a',
+            color: '#fff', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15,
+          }}
+        >
+          {phase === 'accept' ? (lineupReady ? '⚔️ Accept Battle!' : 'Pick Your 3 Cards') : (lineupReady && !!autoResolvedPartner?.telegram_id ? '⚔️ Create Challenge' : 'Pick Opponent + 3 Cards')}
+        </button>
+      )}
+      {(phase === 'select-pack' || phase === 'accept') && !useLineup && (
         <>
           <p style={{ color: '#8888aa', fontSize: 13, marginBottom: 14 }}>
             Choose your battle entry (pack or single card):
@@ -516,6 +601,7 @@ export default function Battle() {
             <button
               onClick={phase === 'accept' ? handleAccept : handleChallenge}
               disabled={phase === 'accept' ? !selectedPackId : (!selectedPackId || !autoResolvedPartner?.telegram_id)}
+              data-mode="pack"
               style={{
                 width: '100%', padding: '14px 0', marginTop: 16,
                 background: (phase === 'accept'

@@ -37,6 +37,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _iso(value):
+    """ISO string for datetime OR pass-through for SQLite's text timestamps."""
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 class Database:
     _instance = None
     _engine = None
@@ -1264,7 +1271,7 @@ class Database:
             "telegram_id": int(row[1]),
             "username": row[2],
             "is_active": bool(row[3]),
-            "last_seen": row[4].isoformat() if row[4] else None,
+            "last_seen": _iso(row[4]),
         }
 
     def list_registered_battle_players(self, exclude_telegram_id: Optional[int] = None, limit: int = 50) -> List[dict]:
@@ -1287,7 +1294,7 @@ class Database:
                 "user_id": str(r[0]),
                 "telegram_id": int(r[1]),
                 "username": r[2] or f"user_{r[1]}",
-                "last_seen": r[3].isoformat() if r[3] else None,
+                "last_seen": _iso(r[3]),
             })
         return out
 
@@ -1491,6 +1498,9 @@ class Database:
                     "longevity":   c.longevity or 50,
                     "culture":     c.culture or 50,
                     "hype":        c.hype or 50,
+                    "genre_family": (getattr(c, "genre_family", None) or "NEUTRAL"),
+                    "momentum":    bool(getattr(c, "momentum_hot", False)),
+                    "view_delta":  int(getattr(c, "view_delta", 0) or 0),
                     "quantity":    uc.quantity,
                     "is_favorite": uc.is_favorite,
                     "acquired_at": uc.acquired_at.isoformat() if uc.acquired_at else None,
@@ -1675,13 +1685,136 @@ class Database:
             card.hype = card_data.get("hype", card.hype)
             card.pack_id = card_data.get("pack_id") or card.pack_id
             card.created_by_user_id = str(card_data.get("created_by_user_id") or card.created_by_user_id or "")
-
+            # Phase 4a: genre family resolved once at creation, never at battle time.
+            explicit_family = card_data.get("genre_family")
+            if explicit_family:
+                card.genre_family = str(explicit_family).upper()
+                card.genre_source = card_data.get("genre_source") or "provided"
+            elif not getattr(card, "genre_source", None):
+                card.genre_family, card.genre_source = self._resolve_genre_for_card(
+                    card.artist_name or card.name, card.title
+                )
             session.commit()
             return True
         except Exception as e:
             session.rollback()
             logger.error(f"[DB] add_card_to_master error: {e}")
             return False
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------
+    # Phase 4 - genre + momentum helpers
+    # ------------------------------------------------------------------
+    def _resolve_genre_for_card(self, artist: str, title: str):
+        """Best-effort external lookup; never raises. Returns (family, source)."""
+        try:
+            from services.genre_resolver import RESOLVE_ON_CREATE, resolve_card_genre
+            if not RESOLVE_ON_CREATE:
+                return "NEUTRAL", None
+            fam, source = resolve_card_genre(artist, title)
+            return fam.value, source
+        except Exception as e:
+            logger.warning(f"[GENRE] resolve failed for {artist!r}: {e}")
+            return "NEUTRAL", None
+
+    def get_cards_missing_genre(self, limit: int = 200) -> List[dict]:
+        """Cards whose genre has never been resolved (no recorded source)."""
+        session = self.get_session()
+        try:
+            rows = (
+                session.query(Card)
+                .filter(Card.genre_source.is_(None))
+                .order_by(Card.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [{"card_id": c.card_id, "name": c.name, "artist_name": c.artist_name, "title": c.title}
+                    for c in rows]
+        finally:
+            session.close()
+
+    def set_card_genre(self, card_id: str, family: str, source: Optional[str]) -> bool:
+        session = self.get_session()
+        try:
+            card = session.query(Card).filter_by(card_id=card_id).first()
+            if not card:
+                return False
+            card.genre_family = (family or "NEUTRAL").upper()
+            card.genre_source = source or "none"
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"[GENRE] set_card_genre error: {e}")
+            return False
+        finally:
+            session.close()
+
+    def genre_distribution(self) -> Dict[str, int]:
+        session = self.get_session()
+        try:
+            rows = session.query(Card.genre_family, func.count(Card.card_id)).group_by(Card.genre_family).all()
+            return {(fam or "NEUTRAL"): int(n) for fam, n in rows}
+        finally:
+            session.close()
+
+    def get_cards_with_youtube(self, limit: int = 5000) -> List[dict]:
+        session = self.get_session()
+        try:
+            rows = (
+                session.query(Card)
+                .filter(Card.youtube_url.isnot(None), Card.youtube_url != "")
+                .limit(limit)
+                .all()
+            )
+            return [{"card_id": c.card_id, "youtube_url": c.youtube_url,
+                     "view_count": c.view_count, "view_delta": c.view_delta or 0} for c in rows]
+        finally:
+            session.close()
+
+    def update_card_views(self, card_id: str, views: int, delta: int, checked_at) -> bool:
+        session = self.get_session()
+        try:
+            card = session.query(Card).filter_by(card_id=card_id).first()
+            if not card:
+                return False
+            card.view_count = int(views)
+            card.view_delta = int(delta)
+            card.views_checked_at = checked_at
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"[MOMENTUM] update_card_views error: {e}")
+            return False
+        finally:
+            session.close()
+
+    def set_momentum_flags(self, hot_card_ids) -> int:
+        """Flag exactly the given cards as hot; clear everything else."""
+        hot = list({str(x) for x in hot_card_ids})
+        session = self.get_session()
+        try:
+            session.query(Card).filter(Card.momentum_hot.is_(True)).update(
+                {Card.momentum_hot: False}, synchronize_session=False)
+            n = 0
+            if hot:
+                n = session.query(Card).filter(Card.card_id.in_(hot)).update(
+                    {Card.momentum_hot: True}, synchronize_session=False)
+            session.commit()
+            return int(n)
+        except Exception as e:
+            session.rollback()
+            logger.error(f"[MOMENTUM] set_momentum_flags error: {e}")
+            return 0
+        finally:
+            session.close()
+
+    def get_hot_card_ids(self) -> set:
+        session = self.get_session()
+        try:
+            return {c.card_id for c in session.query(Card.card_id).filter(Card.momentum_hot.is_(True)).all()}
         finally:
             session.close()
 

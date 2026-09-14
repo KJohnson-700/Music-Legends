@@ -10,6 +10,19 @@ MIN_POWER_ADVANTAGE = 5      # gaps smaller than this are a tie
 TIE_GOLD = 25
 TIE_XP = 10
 
+# Phase 4 — lineups, genre ring, abilities, momentum
+LINEUP_SIZE = 3            # ordered cards per player
+MAX_SAME_FAMILY = 2        # deck-building constraint (NEUTRAL exempt)
+ROUNDS_TO_WIN = 2          # best of three
+GENRE_COUNTER_MULT = 1.35  # attacker's family beats defender's
+GENRE_COUNTERED_MULT = 0.85
+MOMENTUM_MULT = 1.10       # weekly top movers
+MOMENTUM_TOP_FRACTION = 0.10
+AMP_MULT = 1.20            # Amp ability: +20% to one declared slot
+
+# Locked resolution order (4f). Persisted per round for disputes + reveal animation.
+RESOLUTION_ORDER = ("base", "momentum", "genre", "ability", "crit")
+
 
 class BattleWagerConfig:
     """Wager tiers: entry cost and rewards for winner / loser."""

@@ -1,5 +1,21 @@
 # 📋 CHANGELOG
 
+## ⚔️ **Refactor Phase 4 — 2026-09-13** (battle is a game now)
+
+### ✅ **Genre ring, lineups, abilities, momentum**
+- **NEW**: five genre families on a counter ring (Hip-Hop › Pop › Rock › Electronic › Soul › Hip-Hop); counter ×1.35, countered ×0.85. `core/battle/genre.py` maps messy Last.fm/AudioDB tags to families.
+- **NEW**: best-of-three lineups — three ordered cards, round N faces slot N, max two cards per family, first to two rounds, 1-1-tie decided on total modified power. `core/battle/lineup.py`, `resolve_lineup_match()`.
+- **NEW**: one ability per battle — **Swap** (lose round 1 → slots 2/3 exchange), **Amp** (+20% one slot), **Scout** (acceptor reveals the family of one challenger slot before committing).
+- **NEW**: momentum — weekly YouTube view deltas, top 10% movers get +10% (`services/momentum_service.py`, `scripts/refresh_momentum.py`).
+- **NEW**: locked resolution order base → momentum → genre → ability → crit, with a per-round breakdown persisted in the battle result (drives the reveal and settles disputes). Match seed stored for replay.
+- **NEW**: `cards.genre_family` resolved once at card creation via Last.fm → AudioDB (`services/genre_resolver.py`, throttled); backfill via `scripts/backfill_genres.py` or the daily job.
+- **NEW**: TMA API — `GET /api/battle/lineup/cards`, `POST /api/battle/{id}/scout`, `lineup` / `ability` / `ability_slot` on challenge and accept. Old pack/card selection still works (server auto-builds a legal lineup, chosen champion leads).
+- **NEW**: Mini App — lineup builder with genre badges and ability picker; round-by-round reveal screen (`LineupBuilder.tsx`, `RoundReveal.tsx`). Browser dev harness: open with `#tgWebAppMock=1&tgWebAppData=…` against `TMA_SKIP_HMAC=true`.
+- **NEW**: opt-in background jobs on the TMA service (`ENABLE_MOMENTUM_JOB=true`): momentum weekly (Mon 03:00 UTC), genre backfill daily (04:00 UTC).
+- **FIXED**: SQLite returns registry timestamps as text; `last_seen` formatting no longer crashes local/dev runs.
+- **TESTS**: `tests/test_lineup_battle.py` (32, incl. acceptance: weaker cards with correct genre reads beat stronger cards >80% of the time), `tests/test_tma_lineup_battle.py` (7).
+- **MIGRATION**: Alembic `f4a7c1b2e9d3` (columns are also auto-added by `init_database()` on boot).
+
 ## 📐 **Refactor Phase 3 — 2026-09-13** (log-compressed power)
 
 ### ✅ **Card power compressed so multipliers matter**

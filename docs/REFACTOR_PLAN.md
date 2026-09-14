@@ -153,7 +153,26 @@ is under 2x, and a 35% multiplier can flip a matchup between cards two tiers apa
 
 ---
 
-## Phase 4 — Make battle a game
+## Phase 4 — Make battle a game  ✅ DONE 2026-09-13 (core + data + TMA API + Mini App UI)
+
+> Landed: `core/battle/genre.py` (ring + tag map), `core/battle/lineup.py` (3-card lineups, max 2/family,
+> abilities), `core/battle/momentum.py`, `resolve_lineup_match()` with the locked order
+> base → momentum → genre → ability → crit and a persisted per-round breakdown.
+> Data: `cards.genre_family/genre_source/view_count/view_delta/momentum_hot/views_checked_at`,
+> `pending_tma_battles.opponent_scout_json` (Alembic `f4a7c1b2e9d3`; also auto-added by `init_database`).
+> Services: `services/genre_resolver.py` (Last.fm track → artist → AudioDB → NEUTRAL, throttled,
+> resolved at creation), `services/momentum_service.py` (weekly YouTube deltas, top 10% hot).
+> Jobs: opt-in via `ENABLE_MOMENTUM_JOB=true` on the TMA service; CLI `scripts/backfill_genres.py`,
+> `scripts/refresh_momentum.py`. API: `GET /api/battle/lineup/cards`, `POST /{id}/scout`,
+> `lineup/ability/ability_slot` on challenge + accept (legacy pack/card selection still works).
+> UI: `LineupBuilder.tsx`, `RoundReveal.tsx`. Tests: `tests/test_lineup_battle.py` (32),
+> `tests/test_tma_lineup_battle.py` (7).
+>
+> Design calls made while implementing (async play, both lineups committed up front):
+> SWAP is reactive — triggers only if you lose round 1. SCOUT is acceptor-only (the challenger
+> has nothing to scout yet) and locks the acceptor's ability. NEUTRAL cards are exempt from the
+> family cap. Genre backfill on the live table still has to run (job or script) — until then most
+> existing cards are NEUTRAL and the ring is inert for them.
 
 ### 4a. Genre data layer
 

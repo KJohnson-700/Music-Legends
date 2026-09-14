@@ -302,6 +302,14 @@ class Card(Base):
     pack_id = Column(String, ForeignKey('creator_packs.pack_id'))
     created_by_user_id = Column(String, ForeignKey('users.user_id'))
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Phase 4a - genre family resolved once at creation (see services/genre_resolver.py)
+    genre_family = Column(String, default='NEUTRAL')
+    genre_source = Column(String, nullable=True)
+    # Phase 4e - weekly momentum (see services/momentum_service.py)
+    view_count = Column(BigInteger, nullable=True)
+    view_delta = Column(BigInteger, default=0)
+    momentum_hot = Column(Boolean, default=False)
+    views_checked_at = Column(DateTime, nullable=True)
 
     def to_dict(self):
         return {
@@ -471,6 +479,7 @@ class PendingTmaBattle(Base):
     wager_tier = Column(String, default="casual")
     status = Column(String, default="waiting") # waiting, accepted, declined, completed
     result_json = Column(Text) # JSON blob of battle results
+    opponent_scout_json = Column(Text, nullable=True)  # Phase 4d: acceptor's Scout reveal, set before commit
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime)
 

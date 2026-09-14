@@ -97,6 +97,27 @@ class YouTubeIntegration:
         except:
             return None
     
+    def get_video_view_counts(self, video_ids: List[str]) -> Dict[str, int]:
+        """Return {video_id: viewCount} for up to 50 ids in one call (Phase 4e momentum)."""
+        if not self.api_key or not video_ids:
+            return {}
+        try:
+            params = {'part': 'statistics', 'id': ','.join(video_ids[:50]), 'key': self.api_key}
+            response = requests.get(f"{self.base_url}/videos", params=params, timeout=15)
+            if response.status_code != 200:
+                print(f"YouTube statistics error {response.status_code}: {response.text[:200]}")
+                return {}
+            out: Dict[str, int] = {}
+            for item in response.json().get('items', []):
+                try:
+                    out[item['id']] = int(item.get('statistics', {}).get('viewCount', 0))
+                except (TypeError, ValueError):
+                    continue
+            return out
+        except Exception as e:
+            print(f"YouTube statistics error: {e}")
+            return {}
+
     def get_video_info(self, video_id: str) -> Optional[Dict]:
         """Get video information by ID"""
         if not self.api_key:

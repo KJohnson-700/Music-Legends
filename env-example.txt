@@ -43,3 +43,12 @@ DATABASE_URL=
 # Leave empty to use local file backups only (backups stored in backups/ directory)
 # Note: Railway already provides automatic 7-day backups - this is for YOUR custom backup storage
 POSTGRES_BACKUP_URL=
+
+# --- Phase 4 battle jobs (Telegram service) ---
+# Weekly YouTube view refresh + daily genre backfill (single replica only)
+ENABLE_MOMENTUM_JOB=false
+# Resolve genre_family via Last.fm/AudioDB when a card is created (needs LASTFM_API_KEY)
+GENRE_RESOLVE_ON_CREATE=true
+GENRE_BACKFILL_BATCH=200
+# Local browser harness only — never set in production
+# TMA_ALLOW_SYNTHETIC_DEV_USER=true

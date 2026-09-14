@@ -1,6 +1,7 @@
 """Battle router — in-app PvP battles."""
 import json
 import os
+import random
 import secrets
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,7 +12,9 @@ from tma.api.auth import get_tg_user
 from tma.api.telegram_identity import extract_telegram_id_from_user
 from database import get_db
 from cards_config import compute_card_power, compute_team_power
-from core.battle import CardRef, resolve_match
+from core.battle import Ability, CardRef, Lineup, LineupError, auto_lineup, resolve_lineup_match
+from core.battle.config import LINEUP_SIZE, MAX_SAME_FAMILY
+from core.battle.genre import GenreFamily
 from models import PendingTmaBattle, User
 
 router = APIRouter(prefix="/api/battle", tags=["battle"])
@@ -22,11 +25,22 @@ class ChallengeRequest(BaseModel):
     pack_id: str | None = None
     card_id: str | None = None
     wager_tier: str = "casual"
+    # Phase 4: ordered 3-card lineup + one optional ability (0-based slot)
+    lineup: list[str] | None = None
+    ability: str | None = None
+    ability_slot: int | None = None
 
 
 class AcceptRequest(BaseModel):
     pack_id: str | None = None
     card_id: str | None = None
+    lineup: list[str] | None = None
+    ability: str | None = None
+    ability_slot: int | None = None
+
+
+class ScoutRequest(BaseModel):
+    slot: int
 
 
 def _make_battle_id() -> str:
@@ -39,9 +53,121 @@ def _build_bot_start_link(battle_id: str) -> str:
     return f"https://t.me/{bot_username}?start=battle_{battle_id}"
 
 
-def _card_to_ref(card: dict) -> CardRef:
-    """Platform-neutral card for the resolver (power supplied via p1/p2_override)."""
-    return CardRef.from_db_card(card)
+def _selection_to_json(ref: str | None, lineup: list[str] | None,
+                       ability: str | None, ability_slot: int | None) -> str:
+    """Stored in pending_tma_battles.challenger_pack / opponent_pack (Text)."""
+    return json.dumps({"ref": ref, "lineup": lineup, "ability": ability, "ability_slot": ability_slot})
+
+
+def _parse_selection(text: str | None) -> dict:
+    """Back-compat: pre-Phase-4 rows hold a bare selection ref string."""
+    if not text:
+        return {"ref": None, "lineup": None, "ability": None, "ability_slot": None}
+    t = str(text).strip()
+    if t.startswith("{"):
+        try:
+            d = json.loads(t)
+            return {"ref": d.get("ref"), "lineup": d.get("lineup"),
+                    "ability": d.get("ability"), "ability_slot": d.get("ability_slot")}
+        except Exception:
+            pass
+    return {"ref": t, "lineup": None, "ability": None, "ability_slot": None}
+
+
+def _card_ref(card: dict) -> CardRef:
+    """DB card dict → battle CardRef with computed (compressed) power."""
+    return CardRef.from_db_card(card, power=compute_card_power(card))
+
+
+def _user_card_refs(db, user_id: str) -> dict[str, CardRef]:
+    refs: dict[str, CardRef] = {}
+    for c in db.get_user_collection(user_id) or []:
+        cid = str(c.get("card_id") or "")
+        if cid and cid not in refs:
+            refs[cid] = _card_ref(c)
+    return refs
+
+
+def _lineup_payload(ref: CardRef) -> dict:
+    d = ref.to_dict()
+    d.pop("extra", None)
+    return d
+
+
+def _build_lineup(db, user_id: str, sel: dict, forced_scout: dict | None = None) -> Lineup:
+    """
+    Turn a stored/submitted selection into a validated Lineup.
+    Explicit lineup ids must all be owned. Otherwise auto-pick the strongest
+    legal three from the referenced pack (or whole collection).
+    """
+    refs = _user_card_refs(db, user_id)
+    ability = sel.get("ability")
+    slot = sel.get("ability_slot")
+    if forced_scout:
+        ability, slot = "scout", int(forced_scout.get("slot", 0))
+
+    ids = sel.get("lineup") or []
+    try:
+        if ids:
+            missing = [i for i in ids if str(i) not in refs]
+            if missing:
+                raise HTTPException(403, f"You don't own card {missing[0]}")
+            cards = [refs[str(i)] for i in ids]
+        else:
+            pool: list[CardRef]
+            ref = sel.get("ref")
+            pack = _resolve_pack_from_ref(db, user_id, str(ref)) if ref else None
+            if pack and pack.get("cards"):
+                pool = []
+                for c in pack["cards"]:
+                    cid = str(c.get("card_id") or "")
+                    pool.append(refs.get(cid) or _card_ref(c))
+            else:
+                pool = list(refs.values())
+            # A "card:<id>" selection is a chosen champion — it leads the lineup.
+            lead = None
+            if ref and str(ref).startswith("card:"):
+                focus = str(ref).split(":", 1)[1]
+                lead = next((c for c in pool if str(c.card_id) == focus), None)
+                if lead is not None:
+                    pool = [c for c in pool if str(c.card_id) != focus]
+            cards = auto_lineup(pool, lead=lead)
+        return Lineup(cards, ability, slot)
+    except LineupError as e:
+        raise HTTPException(400, str(e))
+
+
+def _summary(side: dict, lineup: Lineup, total: int) -> dict:
+    """Legacy card-shaped summary so older clients still render a result screen."""
+    first = lineup.cards[0]
+    return {
+        "name":        first.name,
+        "power":       int(total),
+        "gold_reward": side["gold_reward"],
+        "xp_reward":   side.get("xp_reward", 0),
+        "image_url":   first.image_url,
+        "youtube_url": first.youtube_url,
+        "rarity":      first.rarity,
+        "lineup":      [_lineup_payload(c) for c in lineup.cards],
+        "ability":     lineup.ability.value if lineup.ability else None,
+        "ability_slot": lineup.ability_slot,
+    }
+
+
+def _run_lineup_battle(db, challenger_id, opponent_id, l1: Lineup, l2: Lineup, wager_tier: str) -> dict:
+    """Resolve a best-of-three and distribute rewards BEFORE returning — gold must never be orphaned."""
+    seed = secrets.randbits(63)
+    result = resolve_lineup_match(l1, l2, wager_tier, rng=random.Random(seed))
+    p1, p2 = result["player1"], result["player2"]
+
+    db.update_user_economy(challenger_id, gold_change=p1["gold_reward"], xp_change=p1.get("xp_reward", 0))
+    db.update_user_economy(opponent_id,   gold_change=p2["gold_reward"], xp_change=p2.get("xp_reward", 0))
+
+    result["seed"] = seed
+    result["is_critical"] = any(r["player1"]["critical_hit"] or r["player2"]["critical_hit"] for r in result["rounds"])
+    result["challenger"] = _summary(p1, l1, result["total_power"][0])
+    result["opponent"] = _summary(p2, l2, result["total_power"][1])
+    return result
 
 
 def _build_collection_pack(db, user_id: str, focus_card_id: str | None = None) -> dict | None:
@@ -152,74 +278,24 @@ def _resolve_pack_from_ref(db, user_id: str, selection_ref: str) -> dict | None:
     return next((p for p in packs if str(p.get("pack_id")) == str(selection_ref)), None)
 
 
-def _run_battle(db, challenger_id: int, opponent_id: int,
-                c_pack: dict, o_pack: dict, wager_tier: str) -> dict:
-    """Execute battle and distribute rewards. Rewards are distributed first —
-    they must never be orphaned by a downstream failure."""
-    c_cards = sorted(c_pack.get("cards", []), key=compute_card_power, reverse=True)
-    o_cards = sorted(o_pack.get("cards", []), key=compute_card_power, reverse=True)
-
-    if not c_cards or not o_cards:
-        return {"error": "Empty pack", "winner": 0}
-
-    c_champ, o_champ = c_cards[0], o_cards[0]
-    c_power = compute_team_power(
-        compute_card_power(c_champ), [compute_card_power(c) for c in c_cards[1:5]]
-    )
-    o_power = compute_team_power(
-        compute_card_power(o_champ), [compute_card_power(c) for c in o_cards[1:5]]
-    )
-
-    result = resolve_match(
-        _card_to_ref(c_champ),
-        _card_to_ref(o_champ),
-        wager_tier,
-        p1_override=c_power,
-        p2_override=o_power,
-    )
-
-    p1, p2 = result["player1"], result["player2"]
-
-    # Distribute BEFORE returning — gold must not be orphaned
-    db.update_user_economy(challenger_id, gold_change=p1["gold_reward"])
-    db.update_user_economy(opponent_id,   gold_change=p2["gold_reward"])
-
-    return {
-        "winner":      result["winner"],
-        "is_critical": result.get("is_critical", False),
-        "challenger": {
-            "name":        c_champ.get("name"),
-            "power":       c_power,
-            "gold_reward": p1["gold_reward"],
-            "xp_reward":   p1.get("xp_reward", 0),
-            "image_url":   c_champ.get("image_url"),
-            "youtube_url": c_champ.get("youtube_url"),
-            "rarity":      c_champ.get("rarity"),
-        },
-        "opponent": {
-            "name":        o_champ.get("name"),
-            "power":       o_power,
-            "gold_reward": p2["gold_reward"],
-            "xp_reward":   p2.get("xp_reward", 0),
-            "image_url":   o_champ.get("image_url"),
-            "youtube_url": o_champ.get("youtube_url"),
-            "rarity":      o_champ.get("rarity"),
-        },
-    }
-
-
 @router.post("/challenge")
 async def create_challenge(body: ChallengeRequest, tg: dict = Depends(get_tg_user)):
     """Challenger picks pack and creates a pending battle for in-app acceptance."""
     db = get_db()
     challenger = db.get_or_create_telegram_user(tg["id"], tg.get("username", ""))
 
-    selection_ref, _challenger_pack = _resolve_selected_pack(
-        db, challenger["user_id"], body.pack_id, body.card_id
-    )
+    if body.lineup:
+        selection_ref = None
+    else:
+        selection_ref, _challenger_pack = _resolve_selected_pack(
+            db, challenger["user_id"], body.pack_id, body.card_id
+        )
+    challenger_sel = {"ref": selection_ref, "lineup": body.lineup,
+                      "ability": body.ability, "ability_slot": body.ability_slot}
+    _build_lineup(db, challenger["user_id"], challenger_sel)  # validate now: ownership, size, family cap, ability
     print(
         f"[BATTLE] challenge selection challenger_tg={tg['id']} "
-        f"resolved_via={selection_ref}"
+        f"resolved_via={selection_ref} lineup={bool(body.lineup)} ability={body.ability}"
     )
 
     battle_id = _make_battle_id()
@@ -245,7 +321,7 @@ async def create_challenge(body: ChallengeRequest, tg: dict = Depends(get_tg_use
             battle_id=battle_id,
             challenger_id=challenger["user_id"],
             opponent_id=opponent_user["user_id"],
-            challenger_pack=selection_ref,
+            challenger_pack=_selection_to_json(selection_ref, body.lineup, body.ability, body.ability_slot),
             wager_tier=body.wager_tier,
             status="waiting",
             expires_at=expires,
@@ -452,6 +528,63 @@ def battle_updates(tg: dict = Depends(get_tg_user)):
         session.close()
 
 
+@router.get("/lineup/cards")
+def lineup_cards(tg: dict = Depends(get_tg_user)):
+    """Cards the player can put in a lineup, with genre family, momentum and a suggested order."""
+    db = get_db()
+    me = db.get_or_create_telegram_user(tg["id"], tg.get("username", ""))
+    refs = sorted(_user_card_refs(db, me["user_id"]).values(), key=lambda c: c.power, reverse=True)
+    try:
+        suggested = [c.card_id for c in auto_lineup(refs)]
+    except LineupError:
+        suggested = []
+    return {
+        "cards": [_lineup_payload(c) for c in refs],
+        "suggested": suggested,
+        "rules": {"size": LINEUP_SIZE, "max_same_family": MAX_SAME_FAMILY,
+                  "families": [f.value for f in GenreFamily if f != GenreFamily.NEUTRAL],
+                  "ring": {"HIP_HOP": "POP", "POP": "ROCK", "ROCK": "ELECTRONIC",
+                           "ELECTRONIC": "SOUL", "SOUL": "HIP_HOP"},
+                  "abilities": [a.value for a in Ability]},
+    }
+
+
+@router.post("/{battle_id}/scout")
+def scout_challenger(battle_id: str, body: ScoutRequest, tg: dict = Depends(get_tg_user)):
+    """
+    Acceptor's SCOUT ability: reveal the FAMILY of one of the challenger's slots
+    before committing a lineup. Single use; locks the acceptor's ability to scout.
+    """
+    if not (0 <= int(body.slot) < LINEUP_SIZE):
+        raise HTTPException(400, f"slot must be between 0 and {LINEUP_SIZE - 1}")
+    db = get_db()
+    me = db.get_or_create_telegram_user(tg["id"], tg.get("username", ""))
+    session = db.get_session()
+    try:
+        row = session.query(PendingTmaBattle).filter_by(battle_id=battle_id).first()
+        if not row:
+            raise HTTPException(404, "Battle not found")
+        if row.status != "waiting":
+            raise HTTPException(400, f"Battle is already {row.status}")
+        if row.opponent_id and str(row.opponent_id) != str(me["user_id"]):
+            raise HTTPException(403, "This challenge was sent to another player")
+        if str(row.challenger_id) == str(me["user_id"]):
+            raise HTTPException(403, "Only the challenged player can scout")
+        if getattr(row, "opponent_scout_json", None):
+            prev = json.loads(row.opponent_scout_json)
+            raise HTTPException(400, f"Scout already used on slot {int(prev.get('slot', 0)) + 1}")
+        challenger_lineup = _build_lineup(db, row.challenger_id, _parse_selection(row.challenger_pack))
+        family = challenger_lineup.families()[int(body.slot)].value
+        row.opponent_scout_json = json.dumps({"slot": int(body.slot), "family": family})
+        session.commit()
+        return {"battle_id": battle_id, "slot": int(body.slot), "family": family, "ability_locked": "scout"}
+    except HTTPException:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 @router.post("/{battle_id}/accept")
 async def accept_challenge(battle_id: str, body: AcceptRequest,
                            tg: dict = Depends(get_tg_user)):
@@ -467,10 +600,12 @@ async def accept_challenge(battle_id: str, body: AcceptRequest,
         battle = {
             "battle_id":      battle_row.battle_id,
             "challenger_id":  battle_row.challenger_id,
+            "opponent_id":    battle_row.opponent_id,
             "challenger_pack": battle_row.challenger_pack,
             "wager_tier":     battle_row.wager_tier,
             "status":         battle_row.status,
             "expires_at":     battle_row.expires_at,
+            "scout":          json.loads(battle_row.opponent_scout_json) if getattr(battle_row, "opponent_scout_json", None) else None,
         }
     finally:
         session.close()
@@ -480,20 +615,31 @@ async def accept_challenge(battle_id: str, body: AcceptRequest,
     if battle["expires_at"] and datetime.utcnow() > battle["expires_at"]:
         raise HTTPException(400, "Battle link has expired")
 
-    opponent_ref, o_pack = _resolve_selected_pack(
-        db, opponent["user_id"], body.pack_id, body.card_id
-    )
+    if str(battle["challenger_id"]) == str(opponent["user_id"]):
+        raise HTTPException(400, "You can't accept your own challenge")
+    if battle["opponent_id"] and str(battle["opponent_id"]) != str(opponent["user_id"]):
+        raise HTTPException(403, "This challenge was sent to another player")
+
+    if body.lineup:
+        opponent_ref = None
+    else:
+        opponent_ref, _o_pack = _resolve_selected_pack(
+            db, opponent["user_id"], body.pack_id, body.card_id
+        )
+    opponent_sel = {"ref": opponent_ref, "lineup": body.lineup,
+                    "ability": body.ability, "ability_slot": body.ability_slot}
     print(
         f"[BATTLE] accept selection opponent_tg={tg['id']} "
-        f"resolved_via={opponent_ref}"
+        f"resolved_via={opponent_ref} lineup={bool(body.lineup)} ability={body.ability}"
     )
-    c_pack = _resolve_pack_from_ref(db, battle["challenger_id"], str(battle["challenger_pack"]))
 
-    if not c_pack or not o_pack:
-        raise HTTPException(400, "Could not resolve battle squads")
+    l1 = _build_lineup(db, battle["challenger_id"], _parse_selection(battle["challenger_pack"]))
+    l2 = _build_lineup(db, opponent["user_id"], opponent_sel, forced_scout=battle["scout"])
 
-    result = _run_battle(db, battle["challenger_id"], opponent["user_id"],
-                         c_pack, o_pack, battle["wager_tier"])
+    result = _run_lineup_battle(db, battle["challenger_id"], opponent["user_id"],
+                                l1, l2, battle["wager_tier"])
+    opponent_ref = _selection_to_json(opponent_ref, body.lineup,
+                                      l2.ability.value if l2.ability else None, l2.ability_slot)
 
     session = db.get_session()
     try:
@@ -556,8 +702,10 @@ def get_battle(battle_id: str, tg: dict = Depends(get_tg_user)):
         return {
             "battle_id": battle_id,
             "status":    status,
+            "wager_tier": row.wager_tier or "casual",
             "expires_at": row.expires_at.isoformat() if row.expires_at else None,
             "result":    json.loads(row.result_json) if row.result_json else None,
+            "scout":     json.loads(row.opponent_scout_json) if getattr(row, "opponent_scout_json", None) else None,
         }
     finally:
         session.close()
